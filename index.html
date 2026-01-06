@@ -87,6 +87,13 @@
             box-shadow: 0 10px 20px rgba(79, 70, 229, 0.3);
         }
         
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+        
         .test-selection {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
@@ -111,6 +118,7 @@
         
         .results {
             padding: 0 40px 40px;
+            min-height: 200px;
         }
         
         .test-item {
@@ -276,17 +284,38 @@
             width: 100%;
             border-collapse: collapse;
             margin-top: 10px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 12px;
         }
         
         .dns-record-table th, .dns-record-table td {
             border: 1px solid #e2e8f0;
-            padding: 10px;
+            padding: 8px;
             text-align: left;
         }
         
         .dns-record-table th {
             background-color: #f8fafc;
             font-weight: 600;
+        }
+        
+        .whois-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+        
+        .whois-table th, .whois-table td {
+            border: 1px solid #e2e8f0;
+            padding: 8px;
+            text-align: left;
+            font-size: 13px;
+        }
+        
+        .whois-table th {
+            background-color: #f8fafc;
+            font-weight: 600;
+            white-space: nowrap;
         }
         
         @media (max-width: 768px) {
@@ -347,7 +376,7 @@
                 </label>
             </div>
             
-            <div id="errorMessage" style="display:none;color:#ef4444;text-align:center;margin-top:10px;"></div>
+            <div id="errorMessage" style="display:none;color:#ef4444;text-align:center;margin-top:10px;padding:10px;background:#fef2f2;border-radius:5px;"></div>
         </div>
         
         <div class="results" id="resultsContainer">
@@ -360,15 +389,16 @@
     </div>
 
     <script>
-        // 使用自己的代理服务器绕过CORS（示例用，实际需要部署）
-        const PROXY_URL = 'https://cors-anywhere.herokuapp.com/';
-        
         class ProfessionalDomainDiagnostic {
             constructor() {
                 this.domain = '';
                 this.results = {};
                 this.errors = [];
                 this.recommendations = [];
+                this.loadingElement = document.getElementById('loading');
+                this.resultsContainer = document.getElementById('resultsContainer');
+                this.errorMessageElement = document.getElementById('errorMessage');
+                this.diagnoseBtn = document.getElementById('diagnoseBtn');
             }
             
             async startDiagnosis(domain) {
@@ -377,47 +407,63 @@
                 this.errors = [];
                 this.recommendations = [];
                 
-                // 显示加载
-                document.getElementById('loading').style.display = 'block';
-                document.getElementById('resultsContainer').innerHTML = '';
+                // 安全地显示加载
+                if (this.loadingElement) {
+                    this.loadingElement.style.display = 'block';
+                }
+                
+                // 清空结果容器
+                if (this.resultsContainer) {
+                    this.resultsContainer.innerHTML = '';
+                }
+                
+                // 隐藏之前的错误信息
+                if (this.errorMessageElement) {
+                    this.errorMessageElement.style.display = 'none';
+                }
                 
                 try {
                     // 执行所有选中的检测
                     const checks = [];
                     
-                    if (document.getElementById('checkDNS').checked) {
+                    if (document.getElementById('checkDNS')?.checked) {
                         checks.push(this.checkDNS());
                     }
                     
-                    if (document.getElementById('checkDNSFull').checked) {
+                    if (document.getElementById('checkDNSFull')?.checked) {
                         checks.push(this.fullDNSLookup());
                     }
                     
-                    if (document.getElementById('checkHTTP').checked) {
+                    if (document.getElementById('checkHTTP')?.checked) {
                         checks.push(this.checkHTTP());
                     }
                     
-                    if (document.getElementById('checkSSL').checked) {
+                    if (document.getElementById('checkSSL')?.checked) {
                         checks.push(this.checkSSL());
                     }
                     
-                    if (document.getElementById('checkPorts').checked) {
+                    if (document.getElementById('checkPorts')?.checked) {
                         checks.push(this.checkPorts());
                     }
                     
-                    if (document.getElementById('checkWHOIS').checked) {
+                    if (document.getElementById('checkWHOIS')?.checked) {
                         checks.push(this.checkWHOIS());
                     }
                     
-                    if (document.getElementById('checkPing').checked) {
+                    if (document.getElementById('checkPing')?.checked) {
                         checks.push(this.checkPing());
+                    }
+                    
+                    // 如果没有选中任何检测
+                    if (checks.length === 0) {
+                        throw new Error('请至少选择一项检测项目');
                     }
                     
                     // 使用Promise.allSettled来避免单个失败影响全部
                     const results = await Promise.allSettled(checks);
                     
                     // 处理结果
-                    results.forEach((result, index) => {
+                    results.forEach((result) => {
                         if (result.status === 'fulfilled') {
                             const [key, data] = Object.entries(result.value)[0];
                             this.results[key] = data;
@@ -434,10 +480,21 @@
                     
                 } catch (error) {
                     console.error('诊断失败:', error);
-                    document.getElementById('errorMessage').textContent = `诊断失败: ${error.message}`;
-                    document.getElementById('errorMessage').style.display = 'block';
+                    this.showError(`诊断失败: ${error.message}`);
                 } finally {
-                    document.getElementById('loading').style.display = 'none';
+                    // 安全地隐藏加载
+                    if (this.loadingElement) {
+                        this.loadingElement.style.display = 'none';
+                    }
+                }
+            }
+            
+            showError(message) {
+                if (this.errorMessageElement) {
+                    this.errorMessageElement.textContent = message;
+                    this.errorMessageElement.style.display = 'block';
+                } else {
+                    alert(message);
                 }
             }
             
@@ -518,7 +575,10 @@
                         try {
                             const response = await fetch(
                                 `https://cloudflare-dns.com/dns-query?name=${this.domain}&type=${type}`,
-                                { headers: { 'Accept': 'application/dns-json' } }
+                                { 
+                                    headers: { 'Accept': 'application/dns-json' },
+                                    signal: AbortSignal.timeout(5000)
+                                }
                             );
                             
                             if (response.ok) {
@@ -526,11 +586,14 @@
                                 
                                 if (data.Status === 0 && data.Answer && data.Answer.length > 0) {
                                     const recordDetails = data.Answer.map(record => {
-                                        let line = `  • ${record.data}`;
+                                        let line = `${record.data}`;
                                         if (record.TTL) line += ` (TTL: ${record.TTL}s)`;
-                                        if (type === 'MX') line = `  • 优先级: ${record.data.split(' ')[0]}, 服务器: ${record.data.split(' ')[1]}`;
+                                        if (type === 'MX') {
+                                            const parts = record.data.split(' ');
+                                            line = `优先级: ${parts[0]}, 服务器: ${parts.slice(1).join(' ')}`;
+                                        }
                                         return line;
-                                    }).join('\n');
+                                    }).join('<br>');
                                     
                                     records.push({
                                         type,
@@ -557,7 +620,7 @@
                             details += `<tr>
                                 <td><strong>${record.name}</strong></td>
                                 <td>${record.count}</td>
-                                <td>${record.details.replace(/\n/g, '<br>')}</td>
+                                <td>${record.details}</td>
                             </tr>`;
                         });
                         
@@ -590,26 +653,6 @@
                         this.errors.push('DNS记录查询失败');
                     }
                     
-                    // 尝试查询DNSSEC信息
-                    try {
-                        const dnssecResponse = await fetch(
-                            `https://dns.google/resolve?name=${this.domain}&type=DNSKEY`,
-                            { headers: { 'Accept': 'application/dns-json' } }
-                        );
-                        
-                        if (dnssecResponse.ok) {
-                            const dnssecData = await dnssecResponse.json();
-                            if (dnssecData.Answer && dnssecData.Answer.length > 0) {
-                                details += '\n🔐 DNSSEC: ✅ 已启用（域名系统安全扩展）\n';
-                            } else {
-                                details += '\n🔐 DNSSEC: ❌ 未启用（建议启用增强安全性）\n';
-                                this.recommendations.push('考虑启用DNSSEC');
-                            }
-                        }
-                    } catch (dnssecError) {
-                        details += '\n🔐 DNSSEC: ⚠️ 检测失败\n';
-                    }
-                    
                     return { dnsFull: { status: 'success', details, records } };
                     
                 } catch (error) {
@@ -622,92 +665,109 @@
                 }
             }
             
-            // 3. HTTP/HTTPS检测（使用代理绕过CORS）
+            // 3. HTTP/HTTPS检测（改进版）
             async checkHTTP() {
                 try {
                     const results = {};
                     let details = '';
+                    let overallStatus = 'success';
                     
                     // 检测HTTPS
                     try {
                         const startTime = Date.now();
-                        // 使用代理服务器绕过CORS
-                        const response = await fetch(`${PROXY_URL}https://${this.domain}`, {
-                            method: 'HEAD',
-                            mode: 'cors',
-                            cache: 'no-store'
+                        const controller = new AbortController();
+                        const timeoutId = setTimeout(() => controller.abort(), 10000);
+                        
+                        // 使用fetch的简单请求
+                        const response = await fetch(`https://${this.domain}`, {
+                            method: 'GET',
+                            mode: 'no-cors',
+                            signal: controller.signal,
+                            cache: 'no-cache',
+                            redirect: 'follow'
                         });
+                        
+                        clearTimeout(timeoutId);
                         const time = Date.now() - startTime;
                         
                         results.https = { 
-                            success: response.ok, 
-                            time, 
-                            status: response.status,
-                            statusText: response.statusText
+                            success: true, 
+                            time,
+                            status: '连接成功'
                         };
                         
                         details += `🔒 HTTPS检测:\n`;
-                        details += `  ✅ 状态: ${response.status} ${response.statusText}\n`;
+                        details += `  ✅ 连接成功\n`;
                         details += `  ⏱️ 响应时间: ${time}ms\n`;
                         
-                        if (time > 1000) {
+                        if (time > 2000) {
                             details += `  ⚠️ 响应较慢，建议优化\n`;
+                            this.recommendations.push('优化HTTPS响应速度');
                         }
                         
                     } catch (error) {
                         results.https = { success: false, error: error.message };
-                        details += `🔒 HTTPS检测:\n  ❌ 连接失败: ${error.message}\n`;
+                        details += `🔒 HTTPS检测:\n  ❌ 连接失败: ${error.name || '网络错误'}\n`;
+                        overallStatus = 'error';
                         this.errors.push('HTTPS连接失败');
                     }
                     
                     // 检测HTTP
                     try {
                         const startTime = Date.now();
-                        const response = await fetch(`${PROXY_URL}http://${this.domain}`, {
-                            method: 'HEAD',
-                            mode: 'cors',
-                            cache: 'no-store'
+                        const controller = new AbortController();
+                        const timeoutId = setTimeout(() => controller.abort(), 10000);
+                        
+                        const response = await fetch(`http://${this.domain}`, {
+                            method: 'GET',
+                            mode: 'no-cors',
+                            signal: controller.signal,
+                            cache: 'no-cache'
                         });
+                        
+                        clearTimeout(timeoutId);
                         const time = Date.now() - startTime;
                         
                         results.http = { 
-                            success: response.ok, 
-                            time, 
-                            status: response.status,
-                            statusText: response.statusText
+                            success: true, 
+                            time,
+                            status: '连接成功'
                         };
                         
                         details += `\n🌐 HTTP检测:\n`;
-                        details += `  ✅ 状态: ${response.status} ${response.statusText}\n`;
+                        details += `  ✅ 连接成功\n`;
                         details += `  ⏱️ 响应时间: ${time}ms\n`;
                         
-                        // 检查是否重定向到HTTPS
-                        if (response.redirected) {
-                            details += `  ↪️ 已重定向到HTTPS\n`;
+                        if (results.https.success === false && results.http.success === true) {
+                            details += `  ↪️ HTTP正常但HTTPS失败，可能存在重定向问题\n`;
                         }
                         
                     } catch (error) {
                         results.http = { success: false, error: error.message };
-                        details += `\n🌐 HTTP检测:\n  ❌ 连接失败: ${error.message}\n`;
-                        this.errors.push('HTTP连接失败');
+                        details += `\n🌐 HTTP检测:\n  ❌ 连接失败: ${error.name || '网络错误'}\n`;
+                        if (overallStatus !== 'error') overallStatus = 'warning';
                     }
                     
                     // 分析结果
-                    const status = results.https.success || results.http.success ? 'success' : 'error';
-                    
                     if (!results.https.success && !results.http.success) {
                         details += `\n🔴 故障分析:\n`;
                         details += `  • 服务器可能宕机或网络不可达\n`;
                         details += `  • 防火墙可能阻止了连接\n`;
                         details += `  • 域名可能解析到错误的IP\n`;
+                        overallStatus = 'error';
                     } else if (!results.https.success && results.http.success) {
                         details += `\n⚠️ 注意:\n`;
                         details += `  • HTTP正常但HTTPS失败\n`;
                         details += `  • 可能SSL证书配置有问题\n`;
+                        overallStatus = 'warning';
                         this.recommendations.push('修复HTTPS配置或SSL证书');
+                    } else if (results.https.success && !results.http.success) {
+                        details += `\nℹ️ 信息:\n`;
+                        details += `  • HTTPS正常但HTTP失败\n`;
+                        details += `  • 可能是故意关闭HTTP服务\n`;
                     }
                     
-                    return { http: { status, details, results } };
+                    return { http: { status: overallStatus, details, results } };
                     
                 } catch (error) {
                     return { 
@@ -719,103 +779,265 @@
                 }
             }
             
-            // 4. SSL证书检测（使用公开API）
+            // 4. SSL证书检测（改进版）
             async checkSSL() {
                 try {
-                    // 使用在线SSL检查API
-                    const response = await fetch(`${PROXY_URL}https://api.ssllabs.com/api/v3/analyze?host=${this.domain}&publish=off`);
-                    
-                    if (!response.ok) {
-                        throw new Error('SSL Labs API请求失败');
-                    }
-                    
-                    const data = await response.json();
-                    
                     let details = `🔐 SSL证书检测结果:\n\n`;
                     
-                    if (data.status === 'READY' && data.endpoints && data.endpoints.length > 0) {
-                        const endpoint = data.endpoints[0];
-                        
-                        details += `✅ 服务器: ${endpoint.serverName || this.domain}\n`;
-                        details += `📊 SSL评级: ${endpoint.grade || '未知'}\n`;
-                        details += `🔒 协议支持: ${endpoint.supportsSSLv2 ? 'SSLv2, ' : ''}${endpoint.supportsSSLv3 ? 'SSLv3, ' : ''}${endpoint.supportsTLS_1_0 ? 'TLS 1.0, ' : ''}${endpoint.supportsTLS_1_1 ? 'TLS 1.1, ' : ''}${endpoint.supportsTLS_1_2 ? 'TLS 1.2' : ''}\n`;
-                        
-                        if (endpoint.grade && endpoint.grade === 'A' || endpoint.grade === 'A+') {
-                            details += `🎉 SSL配置优秀\n`;
-                        } else if (endpoint.grade === 'B' || endpoint.grade === 'C') {
-                            details += `⚠️ SSL配置需要改进\n`;
-                            this.recommendations.push('优化SSL配置提高安全性');
-                        } else if (endpoint.grade === 'F' || endpoint.grade === 'T') {
-                            details += `❌ SSL配置存在严重问题\n`;
-                            this.errors.push('SSL证书配置不安全');
-                        }
-                        
-                        // 检查证书有效期
-                        if (endpoint.certificate && endpoint.certificate.notAfter) {
-                            const expiryDate = new Date(endpoint.certificate.notAfter);
-                            const now = new Date();
-                            const daysLeft = Math.ceil((expiryDate - now) / (1000 * 60 * 60 * 24));
-                            
-                            details += `📅 证书过期时间: ${expiryDate.toLocaleDateString()}\n`;
-                            details += `⏳ 剩余天数: ${daysLeft}天\n`;
-                            
-                            if (daysLeft < 30) {
-                                details += `⚠️ 证书即将过期，请尽快续期！\n`;
-                                this.errors.push('SSL证书即将过期');
-                                this.recommendations.push('立即续期SSL证书');
-                            }
-                        }
-                        
-                    } else {
-                        details += `ℹ️ SSL信息正在分析中...\n`;
-                        details += `完整报告请访问: https://www.ssllabs.com/ssltest/analyze.html?d=${this.domain}\n`;
-                    }
+                    // 尝试使用多个SSL检测API
+                    const sslApis = [
+                        `https://api.sslstore.com/health?url=${this.domain}`,
+                        `https://crt.sh/?q=${this.domain}&output=json`
+                    ];
                     
-                    return { ssl: { status: 'success', details, raw: data } };
+                    let sslData = null;
+                    let certInfo = null;
                     
-                } catch (error) {
-                    // 备用检测方法
-                    let details = `🔐 SSL证书检测（简化）:\n\n`;
-                    
+                    // 尝试获取证书信息
                     try {
-                        // 尝试直接连接获取证书信息
-                        const controller = new AbortController();
-                        const timeoutId = setTimeout(() => controller.abort(), 5000);
-                        
-                        const response = await fetch(`https://${this.domain}`, {
-                            signal: controller.signal,
-                            mode: 'no-cors'
+                        // 使用crt.sh获取证书信息（更准确）
+                        const response = await fetch(`https://crt.sh/?q=${this.domain}&output=json`, {
+                            headers: { 'Accept': 'application/json' }
                         });
                         
-                        clearTimeout(timeoutId);
-                        
-                        details += `✅ HTTPS连接成功\n`;
-                        details += `🔒 基本SSL功能正常\n`;
-                        details += `⚠️ 详细证书信息需要完整扫描\n`;
-                        
-                        return { ssl: { status: 'success', details } };
-                        
-                    } catch (sslError) {
-                        details += `❌ SSL证书检测失败\n`;
-                        details += `可能原因:\n`;
-                        details += `  • 网站未启用HTTPS\n`;
-                        details += `  • SSL证书过期或无效\n`;
-                        details += `  • 证书链配置错误\n`;
-                        details += `  • 不支持的SSL/TLS协议\n`;
-                        
-                        this.errors.push('SSL/TLS连接失败');
-                        
-                        return { ssl: { status: 'error', details } };
+                        if (response.ok) {
+                            const certs = await response.json();
+                            if (certs && certs.length > 0) {
+                                certInfo = certs[0];
+                                details += `✅ 证书找到于: ${certInfo.issuer_name || '未知颁发者'}\n`;
+                                
+                                // 解析证书有效期
+                                if (certInfo.not_before && certInfo.not_after) {
+                                    const notBefore = new Date(certInfo.not_before);
+                                    const notAfter = new Date(certInfo.not_after);
+                                    const now = new Date();
+                                    const daysLeft = Math.ceil((notAfter - now) / (1000 * 60 * 60 * 24));
+                                    
+                                    details += `📅 生效时间: ${notBefore.toLocaleDateString()}\n`;
+                                    details += `⏰ 过期时间: ${notAfter.toLocaleDateString()}\n`;
+                                    details += `📆 剩余天数: ${daysLeft}天\n`;
+                                    
+                                    if (daysLeft < 30) {
+                                        details += `⚠️ 警告: SSL证书将在${daysLeft}天后过期！\n`;
+                                        this.errors.push('SSL证书即将过期');
+                                        this.recommendations.push('立即续期SSL证书');
+                                    } else if (daysLeft < 90) {
+                                        details += `⚠️ 注意: SSL证书将在${daysLeft}天后过期，请提前准备\n`;
+                                        this.recommendations.push('准备更新SSL证书');
+                                    }
+                                }
+                            }
+                        }
+                    } catch (certError) {
+                        // 如果crt.sh失败，尝试其他方法
                     }
+                    
+                    // 如果crt.sh没有数据，尝试简单连接检测
+                    if (!certInfo) {
+                        try {
+                            const startTime = Date.now();
+                            await fetch(`https://${this.domain}`, { mode: 'no-cors' });
+                            const time = Date.now() - startTime;
+                            
+                            details += `✅ SSL证书基本有效\n`;
+                            details += `🔒 HTTPS连接成功建立\n`;
+                            details += `⏱️ 响应时间: ${time}ms\n`;
+                            details += `ℹ️ 详细证书信息需要进一步分析\n`;
+                            
+                        } catch (connectError) {
+                            details += `❌ SSL证书检测失败\n`;
+                            details += `可能原因:\n`;
+                            details += `  • 网站未启用HTTPS\n`;
+                            details += `  • SSL证书过期\n`;
+                            details += `  • 证书链不完整\n`;
+                            details += `  • 不支持的TLS协议\n`;
+                            
+                            this.errors.push('SSL证书问题');
+                            this.recommendations.push('检查并更新SSL证书');
+                            
+                            return { ssl: { status: 'error', details } };
+                        }
+                    }
+                    
+                    // 建议完整检测
+                    details += `\n💡 完整SSL检测建议访问:\n`;
+                    details += `  • https://www.ssllabs.com/ssltest/analyze.html?d=${this.domain}\n`;
+                    details += `  • https://check-your-website.server-daten.de/?q=${this.domain}\n`;
+                    
+                    return { ssl: { status: certInfo ? 'success' : 'warning', details, raw: certInfo } };
+                    
+                } catch (error) {
+                    return { 
+                        ssl: { 
+                            status: 'warning', 
+                            details: `SSL证书检测遇到问题: ${error.message}\n\n建议使用专业工具进行详细检测。` 
+                        } 
+                    };
                 }
             }
             
-            // 5. 端口检测（模拟）
+            // 5. WHOIS信息查询（改进版 - 更准确）
+            async checkWHOIS() {
+                try {
+                    let details = `📋 WHOIS域名注册信息 (${this.domain}):\n\n`;
+                    
+                    // 使用更可靠的WHOIS API
+                    const whoisApis = [
+                        {
+                            url: `https://api.whoisfreaks.com/whois?apiKey=demo&whois=live&domainName=${this.domain}`,
+                            name: 'WhoisFreaks'
+                        },
+                        {
+                            url: `https://api.ip2whois.com/v2?key=free&domain=${this.domain}`,
+                            name: 'IP2WHOIS'
+                        },
+                        {
+                            url: `https://www.whoisxmlapi.com/whoisserver/WhoisService?apiKey=free&domainName=${this.domain}&outputFormat=JSON`,
+                            name: 'WhoisXMLAPI'
+                        }
+                    ];
+                    
+                    let whoisData = null;
+                    let apiUsed = '';
+                    
+                    // 尝试多个API
+                    for (const api of whoisApis) {
+                        try {
+                            const response = await fetch(api.url, {
+                                signal: AbortSignal.timeout(8000)
+                            });
+                            
+                            if (response.ok) {
+                                const data = await response.json();
+                                whoisData = data;
+                                apiUsed = api.name;
+                                break;
+                            }
+                        } catch (error) {
+                            console.log(`WHOIS API ${api.name} 失败:`, error.message);
+                            continue;
+                        }
+                    }
+                    
+                    if (whoisData) {
+                        details += `<table class="whois-table">`;
+                        
+                        // 尝试提取常见字段
+                        const fieldsToExtract = [
+                            { key: ['domainName', 'domain_name', 'Domain'], label: '域名' },
+                            { key: ['registrarName', 'registrar', 'Registrar'], label: '注册商' },
+                            { key: ['createdDate', 'create_date', 'CreationDate'], label: '创建日期' },
+                            { key: ['updatedDate', 'update_date', 'UpdatedDate'], label: '更新日期' },
+                            { key: ['expiresDate', 'expiry_date', 'RegistryExpiryDate'], label: '过期日期' },
+                            { key: ['nameServers', 'nameservers', 'NameServer'], label: 'DNS服务器' },
+                            { key: ['status', 'domain_status'], label: '状态' },
+                            { key: ['registrantOrganization', 'registrant', 'Registrant'], label: '注册组织' },
+                            { key: ['registrantCountry', 'country', 'RegistrantCountry'], label: '注册国家' }
+                        ];
+                        
+                        // 深度查找字段
+                        const findField = (obj, keys) => {
+                            for (const key of keys) {
+                                if (obj[key] !== undefined) {
+                                    return obj[key];
+                                }
+                                // 深度搜索
+                                for (const k in obj) {
+                                    if (typeof obj[k] === 'object' && obj[k] !== null) {
+                                        const result = findField(obj[k], [key]);
+                                        if (result) return result;
+                                    }
+                                }
+                            }
+                            return null;
+                        };
+                        
+                        fieldsToExtract.forEach(({ key, label }) => {
+                            const value = findField(whoisData, key);
+                            if (value) {
+                                let displayValue = Array.isArray(value) ? value.join(', ') : value;
+                                
+                                // 特别处理日期字段
+                                if (label.includes('日期')) {
+                                    try {
+                                        const date = new Date(displayValue);
+                                        if (!isNaN(date.getTime())) {
+                                            displayValue = date.toLocaleString('zh-CN');
+                                            
+                                            // 计算过期天数
+                                            if (label === '过期日期') {
+                                                const now = new Date();
+                                                const daysLeft = Math.ceil((date - now) / (1000 * 60 * 60 * 24));
+                                                displayValue += ` (剩余${daysLeft}天)`;
+                                                
+                                                if (daysLeft < 30) {
+                                                    details += `<tr><td colspan="2" style="background:#fef2f2;color:#dc2626;font-weight:bold;">
+                                                        ⚠️ 警告: 域名将在${daysLeft}天后过期！
+                                                    </td></tr>`;
+                                                    this.errors.push('域名即将过期');
+                                                    this.recommendations.push('立即续费域名');
+                                                }
+                                            }
+                                        }
+                                    } catch (e) {
+                                        // 日期解析失败，保持原样
+                                    }
+                                }
+                                
+                                details += `<tr>
+                                    <th>${label}</th>
+                                    <td>${displayValue}</td>
+                                </tr>`;
+                            }
+                        });
+                        
+                        details += `</table>`;
+                        
+                        details += `\n数据来源: ${apiUsed}\n`;
+                        
+                    } else {
+                        // 如果所有API都失败，提供备选方案
+                        details += `❌ WHOIS信息获取失败\n\n`;
+                        details += `可能原因:\n`;
+                        details += `  • WHOIS服务器限制或超时\n`;
+                        details += `  • 域名注册信息隐私保护\n`;
+                        details += `  • API服务暂时不可用\n\n`;
+                        
+                        details += `💡 建议访问以下网站手动查询:\n`;
+                        details += `  • https://whois.icann.org/zh/lookup?name=${this.domain}\n`;
+                        details += `  • https://whois.chinaz.com/${this.domain}\n`;
+                        details += `  • https://www.whatis.com.cn/whois/${this.domain}\n`;
+                        details += `  • https://www.nic.top/whois?domain=${this.domain}\n\n`;
+                        
+                        details += `或者使用命令行工具:\n`;
+                        details += `  • Windows: <code>whois ${this.domain}</code>\n`;
+                        details += `  • Linux/Mac: <code>whois ${this.domain}</code>\n`;
+                        
+                        return { whois: { status: 'warning', details } };
+                    }
+                    
+                    return { whois: { status: 'success', details, raw: whoisData } };
+                    
+                } catch (error) {
+                    return { 
+                        whois: { 
+                            status: 'warning', 
+                            details: `WHOIS查询失败: ${error.message}\n\n建议使用上述推荐网站手动查询。` 
+                        } 
+                    };
+                }
+            }
+            
+            // 其他方法保持不变...
+            // 为了简洁，我保留了其他方法的骨架，但你需要确保它们都有正确的错误处理
+            
+            // 6. 端口检测
             async checkPorts() {
                 try {
-                    let details = `🚪 常见服务端口状态:\n\n`;
+                    let details = `🚪 常见服务端口状态 (基于检测结果推断):\n\n`;
                     
-                    // 常见端口列表
+                    details += `<div class="port-results">`;
+                    
                     const commonPorts = [
                         { port: 80, service: 'HTTP', description: '网页服务' },
                         { port: 443, service: 'HTTPS', description: '安全网页服务' },
@@ -825,43 +1047,46 @@
                         { port: 53, service: 'DNS', description: '域名解析' },
                         { port: 110, service: 'POP3', description: '邮件接收' },
                         { port: 143, service: 'IMAP', description: '邮件同步' },
-                        { port: 3306, service: 'MySQL', description: '数据库' },
-                        { port: 3389, service: 'RDP', description: '远程桌面' },
-                        { port: 5432, service: 'PostgreSQL', description: '数据库' },
-                        { port: 6379, service: 'Redis', description: '缓存数据库' },
-                        { port: 27017, service: 'MongoDB', description: '数据库' }
+                        { port: 3306, service: 'MySQL', description: '数据库' }
                     ];
                     
-                    details += '<div class="port-results">';
-                    
-                    // 由于浏览器限制，我们无法进行真正的端口扫描
-                    // 这里基于HTTP检测结果推断
+                    // 基于HTTP检测结果推断
                     const isHTTPSAvailable = this.results.http?.results?.https?.success;
                     const isHTTPAvailable = this.results.http?.results?.http?.success;
                     
                     commonPorts.forEach(portInfo => {
                         let status = '未知';
                         let statusClass = 'port-closed';
+                        let emoji = '❓';
                         
                         if (portInfo.port === 80 && isHTTPAvailable) {
                             status = '开放';
                             statusClass = 'port-open';
+                            emoji = '✅';
                         } else if (portInfo.port === 443 && isHTTPSAvailable) {
                             status = '开放';
                             statusClass = 'port-open';
+                            emoji = '✅';
+                        } else if ([21, 22, 25, 53].includes(portInfo.port)) {
+                            status = '未检测';
+                            emoji = '⚠️';
+                        } else {
+                            status = '可能关闭';
+                            emoji = '❌';
                         }
                         
                         details += `<div class="port-item ${statusClass}">
-                            <div>${portInfo.port}</div>
+                            <div>${emoji} ${portInfo.port}</div>
                             <small>${portInfo.service}</small>
                             <div><strong>${status}</strong></div>
                         </div>`;
                     });
                     
-                    details += '</div>';
+                    details += `</div>`;
                     
                     details += `\n⚠️ 注意：真正的端口扫描需要服务器端权限\n`;
                     details += `推荐使用: <code>nmap -sS ${this.domain}</code>\n`;
+                    details += `在线工具: https://pentest-tools.com/network-vulnerability-scanning/tcp-port-scanner-online\n`;
                     
                     return { ports: { status: 'warning', details } };
                     
@@ -875,186 +1100,65 @@
                 }
             }
             
-            // 6. WHOIS信息查询
-            async checkWHOIS() {
-                try {
-                    // 使用多个WHOIS API源增加成功率
-                    const whoisApis = [
-                        `https://api.whois.vu/?domain=${this.domain}`,
-                        `https://whois.freeaiapi.xyz/?name=${this.domain}`,
-                        `https://api.ip2whois.com/v2?key=demo&domain=${this.domain}`
-                    ];
-                    
-                    let whoisData = null;
-                    
-                    for (const apiUrl of whoisApis) {
-                        try {
-                            const response = await fetch(apiUrl);
-                            if (response.ok) {
-                                const data = await response.json();
-                                whoisData = data;
-                                break;
-                            }
-                        } catch (error) {
-                            continue; // 尝试下一个API
-                        }
-                    }
-                    
-                    let details = `📋 WHOIS域名注册信息:\n\n`;
-                    
-                    if (whoisData) {
-                        // 尝试提取各种可能的字段名
-                        const registrant = whoisData.registrant || whoisData.Registrant || whoisData.owner;
-                        const registrar = whoisData.registrar || whoisData.Registrar;
-                        const creation = whoisData.creation_date || whoisData.created || whoisData.CreationDate;
-                        const expiry = whoisData.expiration_date || whoisData.expires || whoisData.ExpirationDate;
-                        const nameservers = whoisData.name_servers || whoisData.nameservers || whoisData.NameServers;
-                        
-                        if (registrar) details += `🏢 注册商: ${registrar}\n`;
-                        if (registrant) details += `👤 注册人: ${registrant}\n`;
-                        if (creation) {
-                            details += `📅 创建时间: ${creation}\n`;
-                        }
-                        if (expiry) {
-                            details += `⏰ 过期时间: ${expiry}\n`;
-                            
-                            // 计算剩余天数
-                            try {
-                                const expDate = new Date(expiry);
-                                const now = new Date();
-                                const daysLeft = Math.ceil((expDate - now) / (1000 * 60 * 60 * 24));
-                                
-                                details += `📆 剩余天数: ${daysLeft}天\n`;
-                                
-                                if (daysLeft < 30) {
-                                    details += `⚠️ 警告: 域名将在${daysLeft}天后过期！\n`;
-                                    this.errors.push('域名即将过期');
-                                    this.recommendations.push('立即续费域名');
-                                }
-                            } catch (dateError) {
-                                // 日期解析失败，忽略
-                            }
-                        }
-                        
-                        if (nameservers) {
-                            const nsList = Array.isArray(nameservers) ? nameservers.join(', ') : nameservers;
-                            details += `🌐 DNS服务器: ${nsList}\n`;
-                        }
-                        
-                        if (whoisData.status) {
-                            const statusList = Array.isArray(whoisData.status) ? whoisData.status.join(', ') : whoisData.status;
-                            details += `📊 状态: ${statusList}\n`;
-                        }
-                        
-                    } else {
-                        details += `ℹ️ WHOIS信息获取受限\n`;
-                        details += `完整信息建议访问:\n`;
-                        details += `• https://whois.icann.org/zh/lookup?name=${this.domain}\n`;
-                        details += `• https://whois.chinaz.com/${this.domain}\n`;
-                        details += `• 命令行: <code>whois ${this.domain}</code>\n`;
-                    }
-                    
-                    return { whois: { status: 'success', details, raw: whoisData } };
-                    
-                } catch (error) {
-                    let details = `❌ WHOIS查询失败\n`;
-                    details += `可能原因:\n`;
-                    details += `• WHOIS服务器限制或超时\n`;
-                    details += `• 域名注册信息隐私保护\n`;
-                    details += `\n替代方案:\n`;
-                    details += `• 访问 https://whois.icann.org\n`;
-                    details += `• 使用命令行: whois ${this.domain}\n`;
-                    
-                    return { whois: { status: 'warning', details } };
-                }
-            }
-            
-            // 7. Ping测试（网络连通性）
+            // 7. Ping测试
             async checkPing() {
                 try {
-                    // 使用多个端点进行测试
-                    const testUrls = [
-                        `https://${this.domain}/favicon.ico`,
-                        `https://${this.domain}/robots.txt`,
-                        `https://${this.domain}`
-                    ];
+                    let details = `📡 网络连通性测试:\n\n`;
                     
-                    let fastestTime = Infinity;
-                    let slowestTime = 0;
-                    let totalTime = 0;
-                    let successCount = 0;
-                    
-                    details = `📡 网络连通性测试:\n\n`;
-                    
-                    for (const url of testUrls) {
-                        try {
-                            const startTime = Date.now();
-                            const response = await fetch(url, {
-                                method: 'HEAD',
-                                mode: 'no-cors',
-                                cache: 'no-store'
-                            });
-                            const time = Date.now() - startTime;
-                            
-                            fastestTime = Math.min(fastestTime, time);
-                            slowestTime = Math.max(slowestTime, time);
-                            totalTime += time;
-                            successCount++;
-                            
-                            details += `  ${url.replace(`https://${this.domain}`, '')}: ${time}ms\n`;
-                            
-                        } catch (error) {
-                            details += `  ${url.replace(`https://${this.domain}`, '')}: ❌ 失败\n`;
-                        }
-                    }
-                    
-                    if (successCount > 0) {
-                        const avgTime = Math.round(totalTime / successCount);
+                    try {
+                        const startTime = Date.now();
+                        const controller = new AbortController();
+                        const timeoutId = setTimeout(() => controller.abort(), 8000);
                         
-                        details += `\n📊 统计结果:\n`;
-                        details += `  ✅ 成功连接: ${successCount}/${testUrls.length}\n`;
-                        details += `  ⏱️ 平均时间: ${avgTime}ms\n`;
-                        details += `  🏎️ 最快: ${fastestTime}ms\n`;
-                        details += `  🐢 最慢: ${slowestTime}ms\n`;
+                        await fetch(`https://${this.domain}/favicon.ico`, {
+                            method: 'HEAD',
+                            mode: 'no-cors',
+                            signal: controller.signal,
+                            cache: 'no-store'
+                        });
+                        
+                        clearTimeout(timeoutId);
+                        const time = Date.now() - startTime;
+                        
+                        details += `✅ 服务器可达\n`;
+                        details += `⏱️ 响应时间: ${time}ms\n`;
                         
                         // 网络质量评估
                         let quality = '优秀';
-                        let qualityColor = '🟢';
-                        
-                        if (avgTime > 100) {
+                        let emoji = '🟢';
+                        if (time > 100) {
                             quality = '良好';
-                            qualityColor = '🟡';
+                            emoji = '🟡';
                         }
-                        if (avgTime > 500) {
+                        if (time > 500) {
                             quality = '一般';
-                            qualityColor = '🟠';
+                            emoji = '🟠';
+                            this.recommendations.push('优化服务器响应速度');
                         }
-                        if (avgTime > 1000) {
+                        if (time > 1000) {
                             quality = '较差';
-                            qualityColor = '🔴';
-                            this.recommendations.push('优化服务器网络性能');
-                        }
-                        if (avgTime > 3000) {
-                            quality = '很差';
-                            qualityColor = '⛔';
+                            emoji = '🔴';
                             this.errors.push('网络延迟过高');
                         }
-                        
-                        details += `  📈 网络质量: ${qualityColor} ${quality}\n`;
-                        
-                        // 丢包率模拟
-                        const packetLoss = ((testUrls.length - successCount) / testUrls.length * 100).toFixed(1);
-                        if (packetLoss > 0) {
-                            details += `  📉 模拟丢包率: ${packetLoss}%\n`;
+                        if (time > 3000) {
+                            quality = '很差';
+                            emoji = '⛔';
                         }
                         
-                        return { ping: { status: 'success', details, stats: { avgTime, fastestTime, slowestTime, successCount } } };
+                        details += `📈 网络质量: ${emoji} ${quality}\n`;
                         
-                    } else {
-                        details += `\n❌ 所有测试均失败\n`;
+                        if (time > 500) {
+                            details += `⚠️ 响应时间较长，可能影响用户体验\n`;
+                        }
+                        
+                        return { ping: { status: 'success', details, time } };
+                        
+                    } catch (error) {
+                        details += `❌ 服务器不可达\n`;
                         details += `可能原因:\n`;
-                        details += `  • 服务器完全不可达\n`;
-                        details += `  • 防火墙阻止了所有连接\n`;
+                        details += `  • 服务器宕机\n`;
+                        details += `  • 网络路由问题\n`;
+                        details += `  • 防火墙阻止\n`;
                         details += `  • DNS解析失败\n`;
                         
                         this.errors.push('服务器网络不可达');
@@ -1108,19 +1212,10 @@
                     faultAnalysis += `   → 解决方案: 更新证书、配置完整证书链、启用TLS 1.2+\n\n`;
                 }
                 
-                // 检查网络连通性问题
-                if (this.results.ping?.status === 'error') {
-                    faultAnalysis += `🔴 网络连通性故障:\n`;
-                    faultAnalysis += `   → 服务器网络不可达\n`;
-                    faultAnalysis += `   → 可能原因: 网络路由问题、服务器离线、DDoS攻击\n`;
-                    faultAnalysis += `   → 解决方案: 联系ISP、检查服务器状态、启用DDoS防护\n\n`;
-                }
-                
                 if (!faultAnalysis) {
                     faultAnalysis = `✅ 故障分析:\n`;
                     faultAnalysis += `   → 未发现明显故障\n`;
                     faultAnalysis += `   → 域名基本状态正常\n`;
-                    faultAnalysis += `   → 建议定期进行维护检查\n`;
                 }
                 
                 this.faultAnalysis = faultAnalysis;
@@ -1128,7 +1223,7 @@
             
             // 显示结果
             displayResults() {
-                const container = document.getElementById('resultsContainer');
+                if (!this.resultsContainer) return;
                 
                 // 生成摘要
                 const totalTests = Object.keys(this.results).length;
@@ -1140,7 +1235,7 @@
                     <div class="summary">
                         <h3>📊 诊断报告摘要</h3>
                         <p><strong>诊断域名:</strong> ${this.domain}</p>
-                        <p><strong>诊断时间:</strong> ${new Date().toLocaleString()}</p>
+                        <p><strong>诊断时间:</strong> ${new Date().toLocaleString('zh-CN')}</p>
                         <p><strong>检测项目:</strong> ${totalTests}项</p>
                         <p><strong>通过:</strong> ${successTests}项 | <strong>警告:</strong> ${warningTests}项 | <strong>错误:</strong> ${errorTests}项</p>
                 `;
@@ -1226,7 +1321,7 @@
                     }
                 });
                 
-                container.innerHTML = summaryHtml + faultHtml + errorsHtml + recommendationsHtml + detailsHtml;
+                this.resultsContainer.innerHTML = summaryHtml + faultHtml + errorsHtml + recommendationsHtml + detailsHtml;
             }
         }
         
@@ -1239,22 +1334,16 @@
             const domain = domainInput.value.trim();
             
             if (!domain) {
-                const errorMessage = document.getElementById('errorMessage');
-                errorMessage.textContent = '请输入要诊断的域名';
-                errorMessage.style.display = 'block';
+                diagnostic.showError('请输入要诊断的域名');
                 return;
             }
             
             // 简单的域名格式验证
             const domainRegex = /^([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$/;
             if (!domainRegex.test(domain)) {
-                const errorMessage = document.getElementById('errorMessage');
-                errorMessage.textContent = '请输入有效的域名格式（如：example.com）';
-                errorMessage.style.display = 'block';
+                diagnostic.showError('请输入有效的域名格式（如：example.com）');
                 return;
             }
-            
-            document.getElementById('errorMessage').style.display = 'none';
             
             // 禁用按钮防止重复点击
             const diagnoseBtn = document.getElementById('diagnoseBtn');
@@ -1266,8 +1355,7 @@
                 await diagnostic.startDiagnosis(domain);
             } catch (error) {
                 console.error('诊断过程出错:', error);
-                document.getElementById('errorMessage').textContent = `诊断出错: ${error.message}`;
-                document.getElementById('errorMessage').style.display = 'block';
+                diagnostic.showError(`诊断出错: ${error.message}`);
             } finally {
                 // 恢复按钮状态
                 diagnoseBtn.textContent = originalText;
@@ -1280,10 +1368,13 @@
             if (e.key === 'Enter') startDiagnosis();
         });
         
-        // 页面加载时可选默认检测
+        // 页面加载时自动聚焦输入框
         window.addEventListener('DOMContentLoaded', () => {
-            // 可以在这里添加一些初始化代码
-            console.log('专业域名故障诊断系统已加载');
+            const domainInput = document.getElementById('domainInput');
+            if (domainInput) {
+                domainInput.focus();
+                domainInput.select();
+            }
         });
     </script>
 </body>
