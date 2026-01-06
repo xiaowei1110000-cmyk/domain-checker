@@ -588,114 +588,171 @@
                 }
             }
             
-            // 1. DNS深度检测 - 使用Cloudflare DNS
+            // 1. DNS深度检测 - 修复版本
             async checkDNS() {
                 try {
                     const startTime = Date.now();
-                    const response = await fetch(
-                        `https://cloudflare-dns.com/dns-query?name=${this.domain}&type=A`,
-                        { 
-                            headers: { 
-                                'Accept': 'application/dns-json'
+                    let details = `🌐 DNS解析检测:\n\n`;
+                    
+                    // 方法1: 使用Cloudflare DNS API
+                    try {
+                        const response = await fetch(
+                            `https://cloudflare-dns.com/dns-query?name=${this.domain}&type=A`,
+                            { 
+                                headers: { 
+                                    'Accept': 'application/dns-json'
+                                },
+                                mode: 'cors'
                             }
+                        );
+                        
+                        const data = await response.json();
+                        const time = Date.now() - startTime;
+                        
+                        details += `⏱️ 响应时间: ${time}ms\n`;
+                        
+                        if (data.Status === 0 && data.Answer && data.Answer.length > 0) {
+                            const ips = data.Answer.map(a => a.data).join(', ');
+                            details += `✅ DNS解析成功\n`;
+                            details += `📌 解析到IP地址: ${ips}\n`;
+                            details += `📊 TTL: ${data.Answer[0].TTL}秒\n`;
+                            
+                            if (data.Answer.length > 1) {
+                                details += `🔀 检测到${data.Answer.length}个IP，可能使用负载均衡\n`;
+                            }
+                            
+                            // 额外检查：检查IPv6
+                            try {
+                                const ipv6Response = await fetch(
+                                    `https://cloudflare-dns.com/dns-query?name=${this.domain}&type=AAAA`,
+                                    { 
+                                        headers: { 
+                                            'Accept': 'application/dns-json'
+                                        },
+                                        mode: 'cors'
+                                    }
+                                );
+                                
+                                const ipv6Data = await ipv6Response.json();
+                                if (ipv6Data.Status === 0 && ipv6Data.Answer && ipv6Data.Answer.length > 0) {
+                                    const ipv6Ips = ipv6Data.Answer.map(a => a.data).join(', ');
+                                    details += `🌐 IPv6地址: ${ipv6Ips}\n`;
+                                }
+                            } catch (e) {
+                                details += `ℹ️ IPv6检测失败\n`;
+                            }
+                            
+                            this.ips = data.Answer.map(a => a.data);
+                            
+                            return { dns: { status: 'success', details, raw: data, time } };
+                            
+                        } else {
+                            details += `❌ DNS解析失败\n`;
+                            details += `📊 错误代码: ${data.Status || '未知'}\n`;
+                            this.errors.push('DNS解析失败 - 域名无法解析到IP地址');
+                            return { dns: { status: 'error', details, time } };
                         }
-                    );
-                    
-                    const data = await response.json();
-                    const time = Date.now() - startTime;
-                    
-                    let status = 'success';
-                    let details = `⏱️ 响应时间: ${time}ms\n`;
-                    
-                    if (data.Status === 0 && data.Answer && data.Answer.length > 0) {
-                        const ips = data.Answer.map(a => a.data).join(', ');
-                        details += `✅ DNS解析成功\n`;
-                        details += `📌 解析到IP: ${ips}\n`;
-                        details += `📊 TTL: ${data.Answer[0].TTL}秒\n`;
                         
-                        if (data.Answer.length > 1) {
-                            details += `🔀 检测到${data.Answer.length}个IP，可能使用负载均衡\n`;
+                    } catch (cloudflareError) {
+                        details += `ℹ️ Cloudflare DNS查询失败，尝试备用方法...\n`;
+                    }
+                    
+                    // 方法2: 使用Google DNS API
+                    try {
+                        const response = await fetch(
+                            `https://dns.google/resolve?name=${this.domain}&type=A`,
+                            { 
+                                headers: { 
+                                    'Accept': 'application/dns-json'
+                                },
+                                mode: 'cors'
+                            }
+                        );
+                        
+                        const data = await response.json();
+                        const time = Date.now() - startTime;
+                        
+                        if (data.Status === 0 && data.Answer && data.Answer.length > 0) {
+                            const ips = data.Answer.map(a => a.data).join(', ');
+                            details += `✅ DNS解析成功 (Google DNS)\n`;
+                            details += `📌 解析到IP地址: ${ips}\n`;
+                            
+                            this.ips = data.Answer.map(a => a.data);
+                            return { dns: { status: 'success', details, raw: data, time } };
                         }
+                    } catch (googleError) {
+                        details += `ℹ️ Google DNS查询失败\n`;
+                    }
+                    
+                    // 方法3: 使用简单的HTTP方法检测
+                    try {
+                        // 尝试直接访问域名来验证DNS解析
+                        const testStart = Date.now();
+                        await fetch(`https://${this.domain}`, {
+                            method: 'HEAD',
+                            mode: 'no-cors',
+                            signal: AbortSignal.timeout(5000)
+                        });
+                        const testTime = Date.now() - testStart;
                         
-                        this.ips = data.Answer.map(a => a.data);
+                        details += `✅ 域名可以访问，DNS解析正常 (${testTime}ms)\n`;
+                        details += `ℹ️ 直接通过HTTPS访问验证DNS解析\n`;
                         
-                    } else {
-                        status = 'error';
-                        details += `❌ DNS解析失败\n`;
-                        details += `📊 错误代码: ${data.Status || '未知'}\n\n`;
+                        return { dns: { status: 'success', details, time: Date.now() - startTime } };
+                        
+                    } catch (httpError) {
+                        details += `❌ 所有DNS检测方法都失败\n`;
                         details += `🔍 可能原因:\n`;
                         details += `1. 域名未注册或已过期\n`;
                         details += `2. DNS服务器配置错误\n`;
-                        details += `3. 域名拼写错误\n`;
+                        details += `3. 网络连接问题\n`;
+                        details += `4. 域名拼写错误\n`;
                         
                         this.errors.push('DNS解析失败 - 域名无法解析到IP地址');
+                        return { dns: { status: 'error', details, time: Date.now() - startTime } };
                     }
-                    
-                    return { dns: { status, details, raw: data, time } };
                     
                 } catch (error) {
                     return { dns: { 
                         status: 'error', 
-                        details: `❌ DNS查询失败\n📊 错误: ${error.message}\n\n🔍 可能原因:\n1. 网络连接问题\n2. DNS查询服务不可用`,
+                        details: `❌ DNS检测失败\n📊 错误: ${error.message}\n\n🔍 可能原因:\n1. 网络连接问题\n2. DNS查询服务不可用`,
                         time: 0
                     } };
                 }
             }
             
-            // 2. HTTP/HTTPS深度检测 - 真实检测
+            // 2. HTTP/HTTPS检测 - 修复版本
             async checkHTTP() {
                 const results = {};
                 let details = '';
                 let hasSuccess = false;
                 let totalTime = 0;
                 
-                // 先检测HTTPS
+                details += `🔍 HTTP/HTTPS服务检测:\n\n`;
+                
+                // 检测HTTPS
                 details += `🔒 HTTPS检测:\n`;
                 try {
                     const startTime = Date.now();
                     const controller = new AbortController();
-                    setTimeout(() => controller.abort(), 8000);
+                    setTimeout(() => controller.abort(), 10000);
                     
-                    const response = await fetch(`https://${this.domain}`, {
-                        method: 'GET',
-                        mode: 'cors',
-                        cache: 'no-cache',
-                        signal: controller.signal,
-                        redirect: 'manual'
+                    // 使用代理绕过CORS限制
+                    const response = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(`https://${this.domain}`)}&method=HEAD`, {
+                        signal: controller.signal
                     });
                     
                     const time = Date.now() - startTime;
                     totalTime += time;
                     
-                    results.https = { 
-                        success: true, 
-                        time,
-                        status: response.status,
-                        statusText: response.statusText,
-                        headers: {}
-                    };
-                    
-                    // 获取响应头信息
-                    const headers = {};
-                    response.headers.forEach((value, key) => {
-                        headers[key] = value;
-                    });
-                    results.https.headers = headers;
-                    
-                    details += `   ✅ 状态: ${response.status} ${response.statusText} (${time}ms)\n`;
-                    
-                    // 显示重要头部信息
-                    if (headers['server']) {
-                        details += `   🖥️ 服务器: ${headers['server']}\n`;
+                    if (response.ok) {
+                        details += `   ✅ 连接成功 (${time}ms)\n`;
+                        results.https = { success: true, time };
+                        hasSuccess = true;
+                    } else {
+                        details += `   ❌ 连接失败，状态码: ${response.status}\n`;
+                        results.https = { success: false, error: `HTTP ${response.status}` };
                     }
-                    if (headers['content-type']) {
-                        details += `   📄 内容类型: ${headers['content-type']}\n`;
-                    }
-                    if (headers['content-length']) {
-                        details += `   📏 内容长度: ${headers['content-length']} bytes\n`;
-                    }
-                    
-                    hasSuccess = true;
                     
                 } catch (error) {
                     results.https = { success: false, error: error.message };
@@ -707,40 +764,24 @@
                 try {
                     const startTime = Date.now();
                     const controller = new AbortController();
-                    setTimeout(() => controller.abort(), 8000);
+                    setTimeout(() => controller.abort(), 10000);
                     
-                    const response = await fetch(`http://${this.domain}`, {
-                        method: 'GET',
-                        mode: 'cors',
-                        cache: 'no-cache',
-                        signal: controller.signal,
-                        redirect: 'manual'
+                    // 使用代理绕过CORS限制
+                    const response = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(`http://${this.domain}`)}&method=HEAD`, {
+                        signal: controller.signal
                     });
                     
                     const time = Date.now() - startTime;
                     totalTime += time;
                     
-                    results.http = { 
-                        success: true, 
-                        time,
-                        status: response.status,
-                        statusText: response.statusText,
-                        headers: {}
-                    };
-                    
-                    const headers = {};
-                    response.headers.forEach((value, key) => {
-                        headers[key] = value;
-                    });
-                    results.http.headers = headers;
-                    
-                    details += `   ✅ 状态: ${response.status} ${response.statusText} (${time}ms)\n`;
-                    
-                    if (headers['server']) {
-                        details += `   🖥️ 服务器: ${headers['server']}\n`;
+                    if (response.ok) {
+                        details += `   ✅ 连接成功 (${time}ms)\n`;
+                        results.http = { success: true, time };
+                        hasSuccess = true;
+                    } else {
+                        details += `   ❌ 连接失败，状态码: ${response.status}\n`;
+                        results.http = { success: false, error: `HTTP ${response.status}` };
                     }
-                    
-                    hasSuccess = true;
                     
                 } catch (error) {
                     results.http = { success: false, error: error.message };
@@ -768,84 +809,108 @@
                 return { http: { status, details, results, time: totalTime } };
             }
             
-            // 3. SSL证书检测 - 使用真实API
+            // 3. SSL证书检测 - 修复证书有效期问题
             async checkSSL() {
                 try {
                     let details = '';
                     let status = 'success';
                     const startTime = Date.now();
                     
+                    details += `🔒 SSL证书检测:\n\n`;
+                    
                     try {
+                        // 方法1: 使用代理获取证书信息
                         const controller = new AbortController();
-                        setTimeout(() => controller.abort(), 10000);
+                        setTimeout(() => controller.abort(), 15000);
                         
-                        // 尝试建立HTTPS连接
-                        const response = await fetch(`https://${this.domain}`, {
-                            mode: 'cors',
-                            signal: controller.signal,
-                            cache: 'no-store'
+                        // 使用allorigins代理获取SSL信息
+                        const response = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(`https://${this.domain}`)}`, {
+                            signal: controller.signal
                         });
                         
                         const time = Date.now() - startTime;
                         
-                        details += `✅ HTTPS连接成功\n`;
-                        details += `⏱️ 连接时间: ${time}ms\n`;
-                        details += `🔒 安全连接已建立\n`;
-                        
-                        // 使用公开SSL检测API
-                        try {
-                            details += `\n🔍 正在获取SSL证书详细信息...\n`;
+                        if (response.ok) {
+                            details += `✅ HTTPS连接成功\n`;
+                            details += `⏱️ 连接时间: ${time}ms\n`;
+                            details += `🔐 安全连接已建立\n`;
                             
-                            // 尝试多个SSL检测API
-                            const apis = [
-                                `https://api.ssllabs.com/api/v3/analyze?host=${this.domain}&publish=off&all=done&fromCache=on`,
-                                `https://ssl-cert-checker.vercel.app/api/check?domain=${this.domain}`
-                            ];
-                            
-                            for (const apiUrl of apis) {
-                                try {
-                                    const sslResponse = await fetch(apiUrl, { 
-                                        signal: AbortSignal.timeout(5000) 
-                                    });
-                                    if (sslResponse.ok) {
-                                        const sslData = await sslResponse.json();
+                            // 方法2: 使用SSL证书检查API
+                            try {
+                                details += `\n🔍 正在获取SSL证书详细信息...\n`;
+                                
+                                // 使用公共的SSL证书检查API
+                                const certResponse = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(`https://crt.sh/?q=${this.domain}&output=json`)}`, {
+                                    signal: AbortSignal.timeout(8000)
+                                });
+                                
+                                if (certResponse.ok) {
+                                    const certData = await certResponse.json();
+                                    const certificates = JSON.parse(certData.contents);
+                                    
+                                    if (certificates && certificates.length > 0) {
+                                        const cert = certificates[0];
                                         
-                                        if (sslData.endpoints && sslData.endpoints.length > 0) {
-                                            const endpoint = sslData.endpoints[0];
-                                            details += `📊 SSL评级: ${sslData.grade || endpoint.grade || '未知'}\n`;
+                                        // 显示证书信息
+                                        if (cert.not_before) {
+                                            details += `📅 证书生效时间: ${new Date(cert.not_before).toLocaleDateString()}\n`;
+                                        }
+                                        
+                                        if (cert.not_after) {
+                                            const expiryDate = new Date(cert.not_after);
+                                            details += `📅 证书过期时间: ${expiryDate.toLocaleDateString()}\n`;
                                             
-                                            if (endpoint.details && endpoint.details.cert) {
-                                                const cert = endpoint.details.cert;
-                                                details += `📅 证书生效: ${cert.notBefore || '未知'}\n`;
-                                                details += `📅 证书过期: ${cert.notAfter || '未知'}\n`;
-                                                
-                                                // 检查是否过期
-                                                if (cert.notAfter) {
-                                                    const expDate = new Date(cert.notAfter);
-                                                    const now = new Date();
-                                                    if (expDate < now) {
-                                                        details += `⚠️ 警告: SSL证书已过期！\n`;
-                                                        this.errors.push('SSL证书已过期');
-                                                        status = 'error';
-                                                    }
-                                                }
+                                            // 计算剩余天数
+                                            const now = new Date();
+                                            const daysLeft = Math.ceil((expiryDate - now) / (1000 * 60 * 60 * 24));
+                                            details += `📆 证书剩余天数: ${daysLeft}天\n`;
+                                            
+                                            if (daysLeft < 30) {
+                                                details += `⚠️ 警告: SSL证书将在${daysLeft}天后过期！\n`;
+                                                this.errors.push(`SSL证书将在${daysLeft}天后过期`);
+                                                status = 'warning';
+                                                this.recommendations.push('立即更新SSL证书');
+                                            }
+                                            
+                                            if (expiryDate < now) {
+                                                details += `🚨 严重: SSL证书已过期！\n`;
+                                                this.errors.push('SSL证书已过期');
+                                                status = 'error';
                                             }
                                         }
-                                        break;
+                                        
+                                        if (cert.issuer_name) {
+                                            details += `🏢 颁发机构: ${cert.issuer_name}\n`;
+                                        }
+                                        
+                                        if (cert.common_name) {
+                                            details += `🌐 证书域名: ${cert.common_name}\n`;
+                                        }
                                     }
-                                } catch (e) {
-                                    continue;
                                 }
+                            } catch (certError) {
+                                details += `ℹ️ 详细证书信息获取失败\n`;
+                                details += `💡 建议使用在线工具检查:\n`;
+                                details += `• https://www.ssllabs.com/ssltest/analyze.html?d=${this.domain}\n`;
+                                details += `• https://crt.sh/?q=${this.domain}\n`;
                             }
                             
-                        } catch (sslApiError) {
-                            details += `ℹ️ 详细证书信息获取失败，但HTTPS连接正常\n`;
+                        } else {
+                            status = 'error';
+                            details += `❌ HTTPS连接失败\n`;
+                            details += `⏱️ 尝试时间: ${time}ms\n`;
+                            details += `🔍 可能原因:\n`;
+                            details += `1. 网站未启用HTTPS\n`;
+                            details += `2. SSL证书配置错误\n`;
+                            
+                            this.errors.push('HTTPS连接失败');
+                            this.recommendations.push('检查SSL证书配置');
                         }
                         
                     } catch (error) {
                         status = 'error';
                         const time = Date.now() - startTime;
-                        details += `❌ SSL/TLS连接失败\n`;
+                        details += `❌ SSL/TLS检测失败\n`;
                         details += `⏱️ 尝试时间: ${time}ms\n`;
                         details += `📊 错误: ${error.message}\n\n`;
                         details += `🔍 可能原因:\n`;
@@ -853,182 +918,138 @@
                         details += `2. SSL证书配置错误\n`;
                         details += `3. 证书不受信任\n`;
                         
-                        this.errors.push('SSL/TLS连接失败');
+                        this.errors.push('SSL/TLS检测失败');
                         this.recommendations.push('检查SSL证书配置');
                     }
                     
-                    return { ssl: { status, details } };
+                    return { ssl: { status, details, time: Date.now() - startTime } };
                     
                 } catch (error) {
                     return { ssl: { 
                         status: 'error', 
-                        details: `❌ SSL检测异常\n错误: ${error.message}` 
+                        details: `❌ SSL检测异常\n错误: ${error.message}`,
+                        time: 0
                     } };
                 }
             }
             
-            // 4. WHOIS信息查询 - 使用真实WHOIS API
+            // 4. WHOIS信息查询
             async checkWHOIS() {
                 try {
                     const startTime = Date.now();
                     let details = `📋 WHOIS域名注册信息查询:\n\n`;
                     let status = 'success';
                     
-                    // 尝试多个WHOIS API（使用真实可用的API）
-                    const whoisApis = [
-                        // API 1: 使用whois.freemyip.com
-                        `https://api.whoisfreaks.com/v1.0/whois?whois=live&domainName=${this.domain}&apiKey=your_api_key_here`,
+                    try {
+                        // 使用代理查询WHOIS信息
+                        const response = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(`https://whois.icann.org/en/lookup?name=${this.domain}`)}`, {
+                            method: 'GET',
+                            signal: AbortSignal.timeout(10000)
+                        });
                         
-                        // API 2: 使用whois.vu（备选）
-                        `https://api.whois.vu/?q=${this.domain}`,
+                        const data = await response.json();
+                        const queryTime = Date.now() - startTime;
                         
-                        // API 3: 使用jsonwhoisapi（公开版）
-                        `https://jsonwhoisapi.com/api/v1/whois?identifier=${this.domain}`,
+                        details += `⏱️ 查询时间: ${queryTime}ms\n`;
                         
-                        // API 4: 使用WHOIS XML API（有免费额度）
-                        `https://www.whoisxmlapi.com/whoisserver/WhoisService?apiKey=at_jsYHtFtPoapguq3p7olVb6rLr9UwF&domainName=${this.domain}&outputFormat=JSON`
-                    ];
-                    
-                    let whoisData = null;
-                    let apiUsed = '';
-                    
-                    for (const apiUrl of whoisApis) {
-                        try {
-                            details += `尝试从 ${new URL(apiUrl).hostname} 获取信息...\n`;
+                        if (data.contents) {
+                            const content = data.contents;
                             
-                            const response = await fetch(apiUrl, {
-                                method: 'GET',
-                                headers: {
-                                    'Accept': 'application/json',
-                                    'User-Agent': 'DomainDiagnosticTool/1.0'
-                                },
-                                signal: AbortSignal.timeout(8000)
-                            });
-                            
-                            if (response.ok) {
-                                const data = await response.json();
+                            // 提取关键信息
+                            if (content.includes('Domain Name:')) {
+                                details += `✅ WHOIS信息获取成功\n\n`;
                                 
-                                // 解析不同的API响应格式
-                                if (data.WhoisRecord) {
-                                    // whoisxmlapi.com 格式
-                                    whoisData = data.WhoisRecord;
-                                    apiUsed = 'whoisxmlapi.com';
-                                    break;
-                                } else if (data.result || data.registrar || data.creation_date) {
-                                    // whois.vu 或其他格式
-                                    whoisData = data.result || data;
-                                    apiUsed = new URL(apiUrl).hostname;
-                                    break;
-                                } else if (data.registryData) {
-                                    // jsonwhoisapi 格式
-                                    whoisData = data.registryData;
-                                    apiUsed = 'jsonwhoisapi.com';
-                                    break;
+                                // 提取域名
+                                const domainMatch = content.match(/Domain Name:\s*([^\n]+)/i);
+                                if (domainMatch) details += `🌐 域名: ${domainMatch[1].trim()}\n`;
+                                
+                                // 提取注册商
+                                const registrarMatch = content.match(/Registrar:\s*([^\n]+)/i);
+                                if (registrarMatch) details += `🏢 注册商: ${registrarMatch[1].trim()}\n`;
+                                
+                                // 提取创建时间
+                                const createdMatch = content.match(/Creation Date:\s*([^\n]+)/i);
+                                if (createdMatch) details += `📅 创建时间: ${createdMatch[1].trim()}\n`;
+                                
+                                // 提取过期时间
+                                const expiresMatch = content.match(/Registry Expiry Date:\s*([^\n]+)/i);
+                                if (expiresMatch) {
+                                    const expiryDate = expiresMatch[1].trim();
+                                    details += `⏰ 过期时间: ${expiryDate}\n`;
+                                    
+                                    // 计算剩余天数
+                                    try {
+                                        const dateMatch = expiryDate.match(/(\d{4}-\d{2}-\d{2})/);
+                                        if (dateMatch) {
+                                            const expDate = new Date(dateMatch[1]);
+                                            const now = new Date();
+                                            const daysLeft = Math.ceil((expDate - now) / (1000 * 60 * 60 * 24));
+                                            
+                                            details += `📆 剩余天数: ${daysLeft}天\n`;
+                                            
+                                            if (daysLeft < 30) {
+                                                details += `⚠️ 警告: 域名将在${daysLeft}天后过期！\n`;
+                                                this.errors.push(`域名即将在${daysLeft}天后过期`);
+                                                this.recommendations.push('立即续费域名');
+                                            }
+                                        }
+                                    } catch (e) {}
                                 }
-                            }
-                        } catch (apiError) {
-                            continue;
-                        }
-                    }
-                    
-                    const queryTime = Date.now() - startTime;
-                    details += `⏱️ 查询时间: ${queryTime}ms\n`;
-                    
-                    if (whoisData) {
-                        details += `✅ WHOIS信息获取成功 (来源: ${apiUsed})\n\n`;
-                        
-                        // 显示关键信息
-                        if (whoisData.registrarName || whoisData.registrar) {
-                            details += `🏢 注册商: ${whoisData.registrarName || whoisData.registrar}\n`;
-                        }
-                        
-                        if (whoisData.createdDate || whoisData.creationDate || whoisData.created) {
-                            const createdDate = whoisData.createdDate || whoisData.creationDate || whoisData.created;
-                            details += `📅 创建时间: ${createdDate}\n`;
-                        }
-                        
-                        if (whoisData.expiresDate || whoisData.expirationDate || whoisData.expires) {
-                            const expiresDate = whoisData.expiresDate || whoisData.expirationDate || whoisData.expires;
-                            details += `⏰ 过期时间: ${expiresDate}\n`;
-                            
-                            // 计算剩余天数
-                            try {
-                                const expDate = new Date(expiresDate);
-                                const now = new Date();
-                                const daysLeft = Math.ceil((expDate - now) / (1000 * 60 * 60 * 24));
                                 
-                                details += `📆 剩余天数: ${daysLeft}天\n`;
-                                
-                                if (daysLeft < 30) {
-                                    details += `⚠️ 警告: 域名将在${daysLeft}天后过期！\n`;
-                                    this.errors.push(`域名即将在${daysLeft}天后过期`);
-                                    this.recommendations.push('立即续费域名');
+                                // 提取DNS服务器
+                                const dnsMatches = content.match(/Name Server:\s*([^\n]+)/gi);
+                                if (dnsMatches && dnsMatches.length > 0) {
+                                    details += `🌐 DNS服务器:\n`;
+                                    dnsMatches.slice(0, 3).forEach((ns, index) => {
+                                        const nsName = ns.replace(/Name Server:\s*/i, '').trim();
+                                        details += `   ${index + 1}. ${nsName}\n`;
+                                    });
                                 }
-                            } catch (e) {}
-                        }
-                        
-                        if (whoisData.nameServers || whoisData.name_servers) {
-                            const ns = whoisData.nameServers || whoisData.name_servers;
-                            if (Array.isArray(ns) && ns.length > 0) {
-                                details += `🌐 DNS服务器:\n`;
-                                ns.forEach((nsItem, index) => {
-                                    details += `   ${index + 1}. ${nsItem}\n`;
-                                });
+                                
+                                // 提取状态
+                                const statusMatches = content.match(/Domain Status:\s*([^\n]+)/gi);
+                                if (statusMatches && statusMatches.length > 0) {
+                                    const statuses = statusMatches.map(s => s.replace(/Domain Status:\s*/i, '').trim());
+                                    details += `📊 状态: ${statuses.join(', ')}\n`;
+                                }
+                            } else {
+                                status = 'warning';
+                                details += `⚠️ WHOIS信息格式解析失败\n`;
                             }
+                        } else {
+                            status = 'warning';
+                            details += `⚠️ WHOIS信息获取受限\n`;
                         }
                         
-                        if (whoisData.status) {
-                            const statuses = Array.isArray(whoisData.status) ? whoisData.status : [whoisData.status];
-                            if (statuses.length > 0) {
-                                details += `📊 状态: ${statuses.join(', ')}\n`;
-                            }
-                        }
-                        
-                        if (whoisData.administrativeContact || whoisData.registrant) {
-                            const contact = whoisData.administrativeContact || whoisData.registrant;
-                            if (contact && contact.name) {
-                                details += `👤 注册人: ${contact.name}\n`;
-                            }
-                        }
-                        
-                        if (whoisData.contactEmail) {
-                            details += `📧 联系邮箱: ${whoisData.contactEmail}\n`;
-                        }
-                        
-                    } else {
+                    } catch (apiError) {
                         status = 'warning';
-                        details += `⚠️ WHOIS信息获取受限\n\n`;
-                        details += `💡 替代查询方法:\n`;
-                        details += `1. 访问: https://whois.icann.org/zh/lookup?name=${this.domain}\n`;
-                        details += `2. 访问: https://www.whois.com/whois/${this.domain}\n`;
-                        details += `3. 使用命令行: whois ${this.domain}\n`;
-                        details += `\n注: 某些WHOIS API可能需要API密钥或付费订阅\n`;
-                        
-                        this.recommendations.push('如需完整WHOIS信息，请访问ICANN官网查询');
+                        details += `⚠️ WHOIS查询失败\n`;
+                        details += `错误: ${apiError.message}\n\n`;
                     }
                     
-                    return { whois: { status, details, raw: whoisData, queryTime } };
+                    details += `\n💡 替代查询方法:\n`;
+                    details += `• https://whois.icann.org/zh/lookup?name=${this.domain}\n`;
+                    details += `• https://www.whois.com/whois/${this.domain}\n`;
+                    
+                    return { whois: { status, details, queryTime: Date.now() - startTime } };
                     
                 } catch (error) {
                     return { whois: { 
                         status: 'warning', 
-                        details: `⚠️ WHOIS查询异常\n错误: ${error.message}\n\n💡 建议直接访问:\n• https://whois.icann.org/zh/lookup?name=${this.domain}\n• https://www.whois.com/whois/${this.domain}`
+                        details: `⚠️ WHOIS查询异常\n错误: ${error.message}\n\n💡 建议直接访问:\n• https://whois.icann.org/zh/lookup?name=${this.domain}`
                     } };
                 }
             }
             
-            // 5. Ping测试（网络连通性）- 真实测试
+            // 5. Ping测试（网络连通性）
             async checkPing() {
                 try {
                     const startTime = performance.now();
                     const controller = new AbortController();
                     const timeoutId = setTimeout(() => controller.abort(), 8000);
                     
-                    // 使用真实的ICMP模拟（通过HTTP请求）
-                    const response = await fetch(`https://${this.domain}`, {
-                        method: 'HEAD',
-                        mode: 'cors',
-                        cache: 'no-store',
+                    // 使用代理进行连接测试
+                    const response = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(`https://${this.domain}`)}&method=HEAD`, {
                         signal: controller.signal
                     });
                     
@@ -1053,22 +1074,14 @@
                         this.recommendations.push('优化服务器响应时间');
                     }
                     
-                    // 获取服务器信息
-                    const server = response.headers.get('server');
-                    if (server) {
-                        details += `🖥️ 服务器软件: ${server}\n`;
-                    }
-                    
                     return { ping: { status: 'success', details, time } };
                     
                 } catch (error) {
                     // 尝试HTTP
                     try {
                         const startTime = performance.now();
-                        await fetch(`http://${this.domain}`, {
-                            method: 'HEAD',
-                            mode: 'cors',
-                            cache: 'no-store'
+                        await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(`http://${this.domain}`)}&method=HEAD`, {
+                            signal: AbortSignal.timeout(8000)
                         });
                         const time = Math.round(performance.now() - startTime);
                         
@@ -1080,7 +1093,7 @@
                         
                     } catch (httpError) {
                         let details = `❌ 网络连通性测试失败\n`;
-                        details += `📊 错误: ${error.name} - ${error.message}\n\n`;
+                        details += `📊 错误类型: ${error.name}\n\n`;
                         details += `🔍 可能原因:\n`;
                         details += `1. 服务器宕机或未启动\n`;
                         details += `2. 网络防火墙阻止连接\n`;
