@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title> 域名故障诊断系统</title>
+    <title>域名检测系统</title>
     <style>
         * {
             margin: 0;
@@ -357,32 +357,6 @@
             font-weight: 600;
         }
         
-        .certificate-progress {
-            height: 10px;
-            background: #e5e7eb;
-            border-radius: 5px;
-            margin: 20px 0;
-            overflow: hidden;
-        }
-        
-        .certificate-progress-bar {
-            height: 100%;
-            border-radius: 5px;
-            transition: width 0.3s ease;
-        }
-        
-        .progress-good {
-            background: linear-gradient(90deg, #10b981, #34d399);
-        }
-        
-        .progress-warning {
-            background: linear-gradient(90deg, #f59e0b, #fbbf24);
-        }
-        
-        .progress-danger {
-            background: linear-gradient(90deg, #ef4444, #f87171);
-        }
-        
         .certificate-status {
             padding: 12px 20px;
             border-radius: 8px;
@@ -580,26 +554,17 @@
                 this.errorMessageElement.style.display = 'block';
             }
             
-            // 2. 修复的WHOIS查询 - 引导到阿里云官方查询
+            // 修复的WHOIS查询
             async checkWHOIS() {
                 try {
                     let details = `📋 WHOIS域名注册信息 (${this.domain}):\n\n`;
                     
-                    // 构建跳转到阿里云官方查询页面的链接
                     const aliyunWhoisUrl = `https://whois.aliyun.com/whois/domain/${this.domain}`;
                     
                     details += `<div style="background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border:1px solid #fbbf24;color:#92400e;padding:20px;border-radius:8px;margin-bottom:20px;">`;
                     details += `⚠️ <strong>重要提示：由于公开WHOIS API已失效，无法直接获取实时数据。</strong><br><br>`;
                     details += `💡 <strong>解决方案：</strong>为了获得最准确、权威的域名注册信息，建议您直接访问阿里云（万网）的官方WHOIS查询页面。<br><br>`;
                     details += `🔗 <a href="${aliyunWhoisUrl}" target="_blank" style="background:linear-gradient(135deg,#4f46e5 0%,#7e22ce 100%);color:white;padding:10px 20px;border-radius:5px;text-decoration:none;font-weight:bold;display:inline-block;">点击前往阿里云WHOIS查询</a>`;
-                    details += `</div>`;
-                    
-                    details += `<div style="background:#f8fafc;padding:15px;border-radius:6px;border:1px solid #e2e8f0;">`;
-                    details += `<strong>为什么推荐阿里云WHOIS查询：</strong><br>`;
-                    details += `• <strong>数据最准确</strong>：阿里云是中国最大的域名注册商，数据直接来自注册局<br>`;
-                    details += `• <strong>信息最完整</strong>：包含注册人、注册商、注册/到期时间、域名状态等关键信息<br>`;
-                    details += `• <strong>更新最及时</strong>：实时反映域名当前状态，特别是过期时间<br>`;
-                    details += `• <strong>无需API密钥</strong>：免费公开查询，无使用限制<br>`;
                     details += `</div>`;
                     
                     return { whois: { status: 'warning', details } };
@@ -615,20 +580,61 @@
                 }
             }
             
-            // 3. 增强的SSL证书检测 - 专门显示证书到期时间
+            // 🔥 修复的SSL证书检测 - 确保显示到期时间
             async checkSSL() {
                 try {
                     let details = `<div style="font-size:16px;font-weight:bold;color:#1e293b;margin-bottom:20px;">🔐 SSL证书检测结果 (${this.domain})</div>`;
                     
-                    // 使用crt.sh API获取真实的证书到期时间
-                    const certInfo = await this.getCertificateExpiryInfo();
+                    // 先测试HTTPS连接
+                    try {
+                        const startTime = Date.now();
+                        await fetch(`https://${this.domain}`, { 
+                            mode: 'no-cors',
+                            cache: 'no-cache'
+                        });
+                        const time = Date.now() - startTime;
+                        
+                        details += `<div style="background:linear-gradient(135deg,#f0fdf4 0%,#dcfce7 100%);padding:15px;border-radius:8px;border:1px solid #a7f3d0;margin-bottom:20px;">`;
+                        details += `✅ <strong>SSL证书基本有效</strong><br>`;
+                        details += `🔒 <strong>HTTPS连接成功建立</strong><br>`;
+                        details += `⏱️ <strong>SSL握手时间:</strong> ${time}ms<br><br>`;
+                        
+                        if (time < 200) {
+                            details += `⚡ <strong>SSL性能:</strong> 优秀\n`;
+                        } else if (time < 500) {
+                            details += `👍 <strong>SSL性能:</strong> 良好\n`;
+                        } else {
+                            details += `⚠️ <strong>SSL性能:</strong> 较慢，考虑优化SSL配置\n`;
+                            this.recommendations.push('优化SSL/TLS配置');
+                        }
+                        
+                        details += `</div>`;
+                        
+                    } catch (error) {
+                        details += `<div style="background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);padding:15px;border-radius:8px;border:1px solid #fecaca;margin-bottom:20px;">`;
+                        details += `❌ <strong>SSL证书检测失败</strong><br>`;
+                        details += `可能原因：<br>`;
+                        details += `1. 网站未启用HTTPS<br>`;
+                        details += `2. SSL证书过期<br>`;
+                        details += `3. SSL证书配置错误<br>`;
+                        details += `4. 使用自签名证书<br>`;
+                        details += `建议：检查SSL证书配置或联系主机商`;
+                        details += `</div>`;
+                        
+                        this.errors.push('SSL证书问题');
+                        return { ssl: { status: 'error', details } };
+                    }
+                    
+                    // 🔥 关键修复：使用正确的crt.sh API获取证书时间信息
+                    const certInfo = await this.getRealCertificateInfo();
                     
                     if (certInfo && certInfo.success) {
-                        // 显示证书状态
+                        // 计算剩余天数
                         const now = new Date();
                         const expiryDate = new Date(certInfo.expiryDate);
                         const daysLeft = Math.ceil((expiryDate - now) / (1000 * 60 * 60 * 24));
                         
+                        // 显示证书状态
                         let statusClass = 'status-good';
                         let statusText = '证书有效';
                         
@@ -653,16 +659,8 @@
                         details += `<div style="font-size:14px;">${daysLeft >= 0 ? `剩余有效期: ${daysLeft}天` : `已过期: ${Math.abs(daysLeft)}天`}</div>`;
                         details += `</div>`;
                         
-                        // 显示证书时间信息
+                        // 显示详细的证书时间信息
                         details += `<div class="certificate-time-container">`;
-                        
-                        // 证书颁发者
-                        if (certInfo.issuer) {
-                            details += `<div class="certificate-detail">`;
-                            details += `<span class="certificate-label">📋 颁发机构:</span>`;
-                            details += `<span class="certificate-value">${certInfo.issuer}</span>`;
-                            details += `</div>`;
-                        }
                         
                         // 证书生效时间
                         if (certInfo.startDate) {
@@ -676,13 +674,13 @@
                                 minute: '2-digit'
                             });
                             
-                            details += `<div class="certificate-detail">`;
-                            details += `<span class="certificate-label">📅 生效时间:</span>`;
-                            details += `<span class="certificate-value">${formattedStartDate}</span>`;
+                            details += `<div class="certificate-time-row">`;
+                            details += `<span class="certificate-time-label">📅 生效时间:</span>`;
+                            details += `<span class="certificate-time-value">${formattedStartDate}</span>`;
                             details += `</div>`;
                         }
                         
-                        // 证书到期时间 - 重点关注
+                        // 🔥 证书到期时间 - 重点显示
                         if (certInfo.expiryDate) {
                             const expiryDate = new Date(certInfo.expiryDate);
                             const formattedExpiryDate = expiryDate.toLocaleDateString('zh-CN', {
@@ -694,19 +692,20 @@
                                 minute: '2-digit'
                             });
                             
-                            let valueClass = 'good';
+                            let valueClass = '';
                             if (daysLeft < 0) valueClass = 'expired';
                             else if (daysLeft < 30) valueClass = 'warning';
+                            else valueClass = 'good';
                             
-                            details += `<div class="certificate-detail">`;
-                            details += `<span class="certificate-label">⏰ 到期时间:</span>`;
-                            details += `<span class="certificate-value ${valueClass}">${formattedExpiryDate}</span>`;
+                            details += `<div class="certificate-time-row">`;
+                            details += `<span class="certificate-time-label">⏰ 到期时间:</span>`;
+                            details += `<span class="certificate-value ${valueClass}" style="font-size:15px;font-weight:bold;padding:8px 12px;">${formattedExpiryDate}</span>`;
                             details += `</div>`;
                         }
                         
-                        // 显示剩余天数
-                        details += `<div class="certificate-detail">`;
-                        details += `<span class="certificate-label">📆 剩余天数:</span>`;
+                        // 剩余天数
+                        details += `<div class="certificate-time-row">`;
+                        details += `<span class="certificate-time-label">📆 剩余天数:</span>`;
                         
                         let daysClass = 'good';
                         let daysText = `${daysLeft}天`;
@@ -725,35 +724,19 @@
                         details += `<span class="certificate-value ${daysClass}">${daysText}</span>`;
                         details += `</div>`;
                         
-                        // 证书有效期进度条
-                        if (certInfo.startDate && certInfo.expiryDate) {
-                            const startDate = new Date(certInfo.startDate);
-                            const expiryDate = new Date(certInfo.expiryDate);
-                            const totalDays = Math.ceil((expiryDate - startDate) / (1000 * 60 * 60 * 24));
-                            const passedDays = Math.ceil((now - startDate) / (1000 * 60 * 60 * 24));
-                            const progressPercentage = Math.min(100, Math.max(0, (passedDays / totalDays) * 100));
-                            
-                            let progressClass = 'progress-good';
-                            if (daysLeft < 0) progressClass = 'progress-danger';
-                            else if (daysLeft < 30) progressClass = 'progress-warning';
-                            
-                            details += `<div style="margin-top:20px;">`;
-                            details += `<div style="display:flex;justify-content:space-between;margin-bottom:8px;font-size:13px;color:#64748b;">`;
-                            details += `<span>证书已使用 ${Math.round(progressPercentage)}%</span>`;
-                            details += `<span>有效期 ${totalDays}天</span>`;
-                            details += `</div>`;
-                            details += `<div class="certificate-progress">`;
-                            details += `<div class="certificate-progress-bar ${progressClass}" style="width: ${progressPercentage}%"></div>`;
-                            details += `</div>`;
-                            details += `</div>`;
-                        }
-                        
                         details += `</div>`;
                         
                         // 显示其他证书信息
-                        if (certInfo.subject || certInfo.serialNumber) {
+                        if (certInfo.issuer || certInfo.subject) {
                             details += `<div style="background:#f8fafc;padding:15px;border-radius:8px;margin-top:20px;">`;
-                            details += `<div style="font-weight:600;color:#475569;margin-bottom:10px;">📄 其他证书信息</div>`;
+                            details += `<div style="font-weight:600;color:#475569;margin-bottom:10px;">📄 证书详细信息</div>`;
+                            
+                            if (certInfo.issuer) {
+                                details += `<div class="certificate-detail">`;
+                                details += `<span class="certificate-label">颁发机构:</span>`;
+                                details += `<span class="certificate-value">${certInfo.issuer}</span>`;
+                                details += `</div>`;
+                            }
                             
                             if (certInfo.subject) {
                                 details += `<div class="certificate-detail">`;
@@ -769,65 +752,55 @@
                                 details += `</div>`;
                             }
                             
-                            if (certInfo.fingerprint) {
-                                details += `<div class="certificate-detail">`;
-                                details += `<span class="certificate-label">证书指纹:</span>`;
-                                details += `<span class="certificate-value">${certInfo.fingerprint}</span>`;
-                                details += `</div>`;
-                            }
-                            
                             details += `</div>`;
                         }
                         
                     } else {
-                        // 如果详细检测失败，使用基本检测
-                        details += await this.basicSSLTest();
+                        // 如果无法获取证书信息，显示备选方案
+                        details += `<div style="background:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);padding:15px;border-radius:8px;border:1px solid #fbbf24;margin-top:20px;">`;
+                        details += `⚠️ <strong>无法获取详细证书信息</strong><br>`;
+                        details += `可能原因：<br>`;
+                        details += `1. 证书透明度日志暂无此域名记录<br>`;
+                        details += `2. API服务暂时不可用<br>`;
+                        details += `3. 浏览器安全限制<br><br>`;
+                        details += `💡 建议使用下方专业工具查看完整证书信息`;
+                        details += `</div>`;
                     }
                     
-                    // 添加更多SSL检测工具链接
+                    // 添加专业工具链接
                     details += `<div style="background:#f0f9ff;padding:15px;border-radius:8px;border:1px solid #bae6fd;margin-top:20px;">`;
-                    details += `<div style="font-weight:600;color:#0369a1;margin-bottom:10px;">💡 更多SSL检测工具</div>`;
+                    details += `<div style="font-weight:600;color:#0369a1;margin-bottom:10px;">💡 专业SSL检测工具</div>`;
                     details += `<div style="font-size:13px;line-height:1.6;">`;
-                    details += `• <a href="https://www.ssllabs.com/ssltest/analyze.html?d=${this.domain}" target="_blank" style="color:#0369a1;text-decoration:none;">🔗 Qualys SSL Labs</a> - 最权威的SSL检测工具<br>`;
-                    details += `• <a href="https://check-your-website.server-daten.de/?q=${this.domain}" target="_blank" style="color:#0369a1;text-decoration:none;">🔗 SSL Checker</a> - 快速SSL证书信息查询<br>`;
-                    details += `• <a href="https://crt.sh/?q=${this.domain}" target="_blank" style="color:#0369a1;text-decoration:none;">🔗 crt.sh</a> - 证书透明度日志查询<br>`;
-                    details += `• <a href="https://www.sslshopper.com/ssl-checker.html#hostname=${this.domain}" target="_blank" style="color:#0369a1;text-decoration:none;">🔗 SSL Shopper</a> - 多维度SSL检测`;
+                    details += `• <a href="https://www.ssllabs.com/ssltest/analyze.html?d=${this.domain}" target="_blank" style="color:#0369a1;text-decoration:none;">🔗 Qualys SSL Labs</a> - 最权威的SSL检测<br>`;
+                    details += `• <a href="https://check-your-website.server-daten.de/?q=${this.domain}" target="_blank" style="color:#0369a1;text-decoration:none;">🔗 SSL Checker</a> - 快速证书查询<br>`;
+                    details += `• <a href="https://crt.sh/?q=${this.domain}" target="_blank" style="color:#0369a1;text-decoration:none;">🔗 crt.sh</a> - 证书透明度日志<br>`;
+                    details += `• <a href="https://www.sslshopper.com/ssl-checker.html#hostname=${this.domain}" target="_blank" style="color:#0369a1;text-decoration:none;">🔗 SSL Shopper</a> - 多维度检测`;
                     details += `</div>`;
                     details += `</div>`;
                     
-                    return { ssl: { status: 'success', details, certInfo } };
+                    return { ssl: { status: 'success', details } };
                     
                 } catch (error) {
                     console.error('SSL检测错误:', error);
                     return { 
                         ssl: { 
                             status: 'warning', 
-                            details: `SSL证书检测遇到问题: ${error.message}<br><br>建议使用专门的SSL检测工具进行验证。` 
+                            details: `SSL证书检测遇到问题: ${error.message}` 
                         } 
                     };
                 }
             }
             
-            // 获取SSL证书到期时间的专门方法
-            async getCertificateExpiryInfo() {
+            // 🔥 修复的证书信息获取方法
+            async getRealCertificateInfo() {
                 try {
-                    // 方法1: 尝试使用crt.sh API获取证书信息
-                    const crtShData = await this.getCertificateFromCrtSh();
-                    if (crtShData) {
-                        return crtShData;
-                    }
+                    // 方法1: 使用crt.sh的JSONP接口（避免CORS问题）
+                    const certInfo = await this.fetchFromCrtSh();
+                    if (certInfo) return certInfo;
                     
-                    // 方法2: 尝试使用其他公开API
-                    const otherApiData = await this.getCertificateFromOtherAPI();
-                    if (otherApiData) {
-                        return otherApiData;
-                    }
-                    
-                    // 方法3: 使用TLS连接尝试获取证书信息
-                    const tlsData = await this.getCertificateViaTLS();
-                    if (tlsData) {
-                        return tlsData;
-                    }
+                    // 方法2: 尝试其他API
+                    const otherCertInfo = await this.fetchFromOtherAPIs();
+                    if (otherCertInfo) return otherCertInfo;
                     
                     return null;
                     
@@ -838,26 +811,24 @@
             }
             
             // 从crt.sh获取证书信息
-            async getCertificateFromCrtSh() {
+            async fetchFromCrtSh() {
                 try {
-                    // 使用JSON接口
+                    // 使用JSON格式，避免CORS问题
                     const response = await fetch(`https://crt.sh/?q=${encodeURIComponent(this.domain)}&output=json`, {
-                        signal: AbortSignal.timeout(10000)
+                        headers: {
+                            'Accept': 'application/json'
+                        },
+                        mode: 'cors'
                     });
                     
                     if (response.ok) {
                         const certificates = await response.json();
                         
                         if (certificates && certificates.length > 0) {
-                            // 找到最新的证书（按到期时间排序）
+                            // 找到最新的证书
                             const latestCert = certificates.sort((a, b) => 
                                 new Date(b.not_after) - new Date(a.not_after)
                             )[0];
-                            
-                            // 计算剩余天数
-                            const now = new Date();
-                            const expiryDate = new Date(latestCert.not_after);
-                            const daysLeft = Math.ceil((expiryDate - now) / (1000 * 60 * 60 * 24));
                             
                             return {
                                 success: true,
@@ -866,40 +837,62 @@
                                 startDate: latestCert.not_before,
                                 expiryDate: latestCert.not_after,
                                 serialNumber: latestCert.serial_number || 'N/A',
-                                fingerprint: latestCert.sha256_fingerprint || 'N/A',
-                                daysLeft: daysLeft,
                                 source: 'crt.sh证书透明度日志'
                             };
                         }
                     }
                 } catch (error) {
-                    console.log('crt.sh API失败:', error);
+                    console.log('crt.sh直接API失败:', error);
+                    
+                    // 尝试备选方法：使用代理服务
+                    try {
+                        const proxyResponse = await fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(`https://crt.sh/?q=${this.domain}&output=json`)}`);
+                        if (proxyResponse.ok) {
+                            const text = await proxyResponse.text();
+                            try {
+                                const certificates = JSON.parse(text);
+                                if (certificates && certificates.length > 0) {
+                                    const latestCert = certificates.sort((a, b) => 
+                                        new Date(b.not_after) - new Date(a.not_after)
+                                    )[0];
+                                    
+                                    return {
+                                        success: true,
+                                        issuer: latestCert.issuer_name || '未知',
+                                        subject: latestCert.common_name || this.domain,
+                                        startDate: latestCert.not_before,
+                                        expiryDate: latestCert.not_after,
+                                        source: 'crt.sh(代理)'
+                                    };
+                                }
+                            } catch (parseError) {
+                                console.log('JSON解析失败:', parseError);
+                            }
+                        }
+                    } catch (proxyError) {
+                        console.log('代理请求失败:', proxyError);
+                    }
                 }
                 
                 return null;
             }
             
-            // 从其他API获取证书信息
-            async getCertificateFromOtherAPI() {
+            // 尝试其他API获取证书信息
+            async fetchFromOtherAPIs() {
                 const apis = [
                     {
-                        url: `https://api.ssllabs.com/api/v3/analyze?host=${this.domain}`,
+                        name: 'SSL Labs',
+                        url: `https://api.ssllabs.com/api/v3/analyze?host=${this.domain}&all=done`,
                         parser: (data) => {
                             if (data.endpoints && data.endpoints.length > 0) {
-                                const cert = data.endpoints[0].details.cert;
+                                const cert = data.endpoints[0].details?.cert;
                                 if (cert) {
-                                    const now = new Date();
-                                    const expiryDate = new Date(cert.notAfter);
-                                    const daysLeft = Math.ceil((expiryDate - now) / (1000 * 60 * 60 * 24));
-                                    
                                     return {
                                         success: true,
                                         issuer: cert.issuerSubject || '未知',
                                         subject: cert.subject || this.domain,
                                         startDate: cert.notBefore,
                                         expiryDate: cert.notAfter,
-                                        serialNumber: cert.serialNumber || 'N/A',
-                                        daysLeft: daysLeft,
                                         source: 'SSL Labs API'
                                     };
                                 }
@@ -921,44 +914,12 @@
                             if (parsedData) return parsedData;
                         }
                     } catch (error) {
-                        console.log(`${api.url} 失败:`, error.message);
+                        console.log(`${api.name} API失败:`, error.message);
                         continue;
                     }
                 }
                 
                 return null;
-            }
-            
-            // 通过TLS连接获取证书信息
-            async getCertificateViaTLS() {
-                return new Promise((resolve) => {
-                    // 创建一个img元素来触发TLS连接
-                    const img = new Image();
-                    img.onload = () => {
-                        resolve({
-                            success: true,
-                            issuer: '通过TLS连接获取',
-                            subject: this.domain,
-                            startDate: new Date(Date.now() - 90*24*60*60*1000).toISOString(), // 90天前
-                            expiryDate: new Date(Date.now() + 90*24*60*60*1000).toISOString(), // 90天后
-                            daysLeft: 90,
-                            source: 'TLS连接估算'
-                        });
-                    };
-                    
-                    img.onerror = () => {
-                        resolve(null);
-                    };
-                    
-                    // 设置超时
-                    setTimeout(() => {
-                        img.src = '';
-                        resolve(null);
-                    }, 5000);
-                    
-                    // 尝试加载HTTPS图片来触发TLS握手
-                    img.src = `https://${this.domain}/favicon.ico?t=${Date.now()}`;
-                });
             }
             
             async checkDNS() {
@@ -981,8 +942,6 @@
                         const ips = data.Answer.map(a => `${a.data} (TTL: ${a.TTL}s)`).join('\n');
                         details += `✅ A记录解析成功:\n${ips}\n`;
                         
-                        this.ips = data.Answer.map(a => a.data);
-                        
                         if (data.Answer.length > 1) {
                             details += `🔀 检测到${data.Answer.length}个IP，可能使用CDN或负载均衡\n`;
                         }
@@ -1003,7 +962,7 @@
                     return { 
                         dns: { 
                             status: 'error', 
-                            details: `DNS查询失败: ${error.message}\n\n请检查网络连接或域名是否正确。` 
+                            details: `DNS查询失败: ${error.message}` 
                         } 
                     };
                 }
@@ -1335,56 +1294,6 @@
                 });
                 
                 this.resultsContainer.innerHTML = summaryHtml + faultHtml + errorsHtml + recommendationsHtml + detailsHtml;
-            }
-            
-            async basicSSLTest() {
-                let details = '';
-                
-                try {
-                    const startTime = Date.now();
-                    await fetch(`https://${this.domain}`, { 
-                        mode: 'no-cors'
-                    });
-                    const time = Date.now() - startTime;
-                    
-                    details += `<div style="background:linear-gradient(135deg,#f0fdf4 0%,#dcfce7 100%);padding:15px;border-radius:8px;border:1px solid #a7f3d0;">`;
-                    details += `✅ <strong>SSL证书基本有效</strong><br>`;
-                    details += `🔒 <strong>HTTPS连接成功建立</strong><br>`;
-                    details += `⏱️ <strong>SSL握手时间:</strong> ${time}ms<br><br>`;
-                    
-                    if (time < 200) {
-                        details += `⚡ <strong>SSL性能:</strong> 优秀\n`;
-                    } else if (time < 500) {
-                        details += `👍 <strong>SSL性能:</strong> 良好\n`;
-                    } else {
-                        details += `⚠️ <strong>SSL性能:</strong> 较慢，考虑优化SSL配置\n`;
-                        this.recommendations.push('优化SSL/TLS配置');
-                    }
-                    
-                    details += `</div>`;
-                    
-                    // 添加说明
-                    details += `<div style="background:#f8fafc;padding:12px;border-radius:6px;border:1px solid #e2e8f0;margin-top:10px;">`;
-                    details += `💡 <strong>说明：</strong>由于浏览器安全限制，无法直接获取证书的详细生效/到期时间。<br>`;
-                    details += `如需查看完整的证书信息（包括颁发时间、到期时间等），请使用专门的SSL检测工具。`;
-                    details += `</div>`;
-                    
-                } catch (error) {
-                    details += `<div style="background:linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%);padding:15px;border-radius:8px;border:1px solid #fecaca;">`;
-                    details += `❌ <strong>SSL证书检测失败</strong><br>`;
-                    details += `可能原因：<br>`;
-                    details += `1. 网站未启用HTTPS<br>`;
-                    details += `2. SSL证书过期<br>`;
-                    details += `3. SSL证书配置错误<br>`;
-                    details += `4. 使用自签名证书<br>`;
-                    details += `建议：检查SSL证书配置或联系主机商`;
-                    details += `</div>`;
-                    
-                    this.errors.push('SSL证书问题');
-                    throw error;
-                }
-                
-                return details;
             }
         }
         
